@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+
+contract DeFiIntegration is Ownable {
+    using SafeMath for uint256;
+
+    IERC20 public maartionToken;
+
+    struct Loan {
+        uint256 id;
+        address student;
+        uint256 amount;
+        uint256 interestRate;
+        uint256 duration;
+        uint256 startTime;
+        bool repaid;
+    }
+
+    uint256 public nextLoanId = 1;
+    mapping(uint256 => Loan) public loans;
+    mapping(address => uint256[]) public studentLoans;
+
+    event LoanRequested(uint256 loanId, address student, uint256 amount, uint256 interestRate, uint256 duration);
+    event LoanRepaid(uint256 loanId, address student, uint256 amount);
+
+    constructor(address _maartionToken) {
+        maartionToken = IERC20(_maartionToken);
+    }
+
+    function requestLoan(uint256 _amount, uint256 _interestRate, uint256 _duration) public {
+        uint256 loanId = nextLoanId;
+        loans[loanId] = Loan({
+            id: loanId,
+            student: msg.sender,
+            amount: _amount,
+            interestRate: _interestRate,
+            duration: _duration,
+            startTime: block.timestamp,
+            repaid: false
+        });
+
+        studentLoans[msg.sender].push(loanId);
+
+        emit LoanRequested(loanId, msg.sender, _amount, _interestRate, _duration);
+
+        nextLoanId++;
+    }
+
+    function repayLoan(uint256 _loanId) public {
+        Loan storage loan = loans[_loanId];
+        require(msg.sender == loan.student, "Only the borrower can repay the loan");
+        require(!loan.repaid, "Loan is already repaid");
+
+        uint256 repaymentAmount = loan.amount.add(loan.amount.mul(loan.interestRate).div(100));
+        require(maartionToken.balanceOf(msg.sender) >= repaymentAmount, "Insufficient balance to repay the loan");
+
+        loan.repaid = true;
+        maartionToken.transferFrom(msg.sender, address(this), repaymentAmount);
+
+        emit LoanRepaid(_loanId, msg.sender, repaymentAmount);
+    }
+
+    function getLoanDetails(uint256 _loanId) public view returns (address student, uint256 amount, uint256 interestRate, uint256 duration, uint256 startTime, bool repaid) {
+        Loan storage loan = loans[_loanId];
+        return (loan.student, loan.amount, loan.interestRate, loan.duration, loan.startTime, loan.repaid);
+    }
+
+    function getStudentLoans(address _student) public view returns (uint256[] memory) {
+        return studentLoans[_student];
+    }
+}
